@@ -1,16 +1,31 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 
 import sys
-from subprocess import check_call, PIPE, STDOUT, CalledProcessError
+import io
+import time
+from tempfile import mkstemp
+from subprocess import Popen, STDOUT
+
 
 def run(cmd):
-  print(cmd)
-  try:
-    check_call(cmd, shell=True, stderr=STDOUT)
-  except CalledProcessError as e:
-    print("%sreturn code: %s" % (format(e.output.decode()), e.returncode))
-    return(e.returncode)
-  return 0
+  statusfile = mkstemp()[1]
+  with io.open(statusfile, 'wb') as writer:
+    with io.open(statusfile, 'rb', 1) as reader:
+
+      proc = Popen(cmd, shell=True, stdout=writer, stdin=None, stderr=STDOUT)
+
+      while None == proc.poll():
+        sys.stdout.write(reader.read())
+        time.sleep(0.2)
+
+      sys.stdout.write(reader.read(10000))
+      sys.stdout.flush()
+
+      if 0 != proc.returncode:
+        sys.stdout.write("exit code: %s\n" % (proc.returncode))
+
+  return proc.returncode
+
 
 def puppet_on_centos():
   cmd = """
@@ -19,33 +34,59 @@ def puppet_on_centos():
   """
   return run(cmd)
 
+
 def puppet_on_ubuntu():
   cmd = """
   cd /tmp/buildutils && \
-  wget https://s3.amazonaws.com/pe-builds/released/3.3.1/puppet-enterprise-3.3.1-ubuntu-14.04-amd64.tar.gz && \
-  tar xf puppet-enterprise* && \
+  wget -c 'http://apt.puppetlabs.com/puppetlabs-release-trusty.deb' && \
   dpkg -i puppetlabs-release-trusty.deb && \
   sed -i -e 's/^deb\-src /#deb-src /g' /etc/apt/sources.list && \
-  apt-get update && apt-get -y upgrade && apt-get install -y puppet hiera
+  apt-get update && apt-get -y upgrade && apt-get install -y puppet hiera && \
+  rm -rf /tmp/buildutils
   """
   return run(cmd)
 
+
 def pe_on_centos():
-  return run('/bin/false')
+  cmd = """
+  cd /tmp/buildutils && \
+  yum install -y tar && \
+  mkdir -p puppet-enterprise && \
+  tar xvf puppet-enterprise-* -C puppet-enterprise --strip-components
+  """
+#  tar xvf puppet-enterprise-* -C puppet-enterprise --strip-components 1 && \
+#  rm -fv puppet-enterprise*.tar.gz && \
+# ./puppet-enterprise/puppet-enterprise-installer -a agent-answers.txt && \
+#  rm -rf /tmp/buildutils
+#  """
+  return run(cmd)
+
 
 def pe_on_ubuntu():
-  return run('/bin/false')
+  cmd = """ 
+  cd /tmp/buildutils && \
+  mkdir -p puppet-enterprise && \
+  tar xvf puppet-enterprise-* -C puppet-enterprise --strip-components 1
+  """
+#  tar xvf puppet-enterprise-* -C puppet-enterprise --strip-components 1 && \
+#  rm -fv puppet-enterprise*.tar.gz && \
+# ./puppet-enterprise/puppet-enterprise-installer -a agent-answers.txt && \
+#  rm -rf /tmp/buildutils
+#  """
+  return run(cmd)
+
 
 def p_valid_os(os):
   valid_oses = [ 'ubuntu', 'centos' ]
   if not os in valid_oses:
-    print("Sorry, but OS \'%s\' not supported!" % (os))
+    sys.stdout.write("Sorry, but OS \'%s\' not supported!" % (os))
     return False
   return True
 
+
 def install_puppet(os_flavor):
   if p_valid_os(os_flavor):
-    print("Installing Puppet FLOSS on %s..." % (os_flavor))
+    sys.stdout.write("Installing Puppet FLOSS on %s..." % (os_flavor))
     if 'centos' == os_flavor:
       return puppet_on_centos()
     else:
@@ -53,9 +94,10 @@ def install_puppet(os_flavor):
   else:
     return -1
 
+
 def install_pe(os_flavor):
   if p_valid_os(os_flavor):
-    print("Installing Puppet Enterprise on %s..." % (os_flavor))
+    sys.stdout.write("Installing Puppet Enterprise on %s..." % (os_flavor))
     if 'centos' == os_flavor:
       return pe_on_centos()
     else:
@@ -63,17 +105,20 @@ def install_pe(os_flavor):
   else:
     return -1
 
+
 def install(puppet_flavor, os_flavor):
   if 'puppet' == puppet_flavor:
     return install_puppet(os_flavor)
   elif 'pe' == puppet_flavor:
     return install_pe(os_flavor)
   else:
-    print("Invalid Puppet flavor specified: \'%s\'" % (puppet_flavor))
+    sys.stdout.write("Invalid Puppet flavor specified: \'%s\'" % (puppet_flavor))
     return -1
 
+
 def usage():
-  print("Usage: install.py <puppet|pe> <ubuntu|centos>")
+  sys.stdout.write("Usage: install.py <puppet|pe> <ubuntu|centos>")
+
 
 def main(argv):
   if 3 == len(argv):
@@ -81,6 +126,7 @@ def main(argv):
   else:
     usage()
     return -1
+
 
 if '__main__' == __name__:
   sys.exit(main(sys.argv))
